@@ -1,85 +1,83 @@
-# 10 — The Model and Training (your Gemma question)
+# 10 — The Model and Training
 
-## Short answer
+## Chosen model: Gemma 4 (Suggestion, based on your preference)
 
-**Yes, this is a common and good approach.** It is called **fine-tuning**: take a small free model that already understands language, then train it a little more on our own examples so it becomes an expert at one job, writing our instructions. The result is a small model that is very good at our task.
+| Model | Size | Memory to run (approx.) | When to use |
+|-------|------|------------------------|-------------|
+| **Gemma 4 E2B** | about 2 billion *effective* parameters | about 1.5 GB at 4-bit, about 4 GB at full precision | Developing on a weak computer, quick tests |
+| **Gemma 4 E4B** ⭐ | about 4 billion *effective* parameters (the stored file is larger) | about 3–5 GB at 4-bit, about 15 GB at full precision | **Main model.** Better reasoning, so better decisions |
+| Gemma 4 26B A4B / 31B | much bigger | 16 GB+ even at 4-bit | Later, with a powerful computer or cloud |
 
-## One correction: a model has no "frontend" to strip
+Memory numbers come from public guides and model pages; we will measure them ourselves.
+
+Facts from Google's Gemma 4 model card and docs:
+- **Thinking**: every Gemma 4 model has a configurable thinking mode.
+- **Context window**: the small models (E2B, E4B) can read up to 128K tokens, which is far more than our rules and requests need.
+- **System prompt** and **function calling** are built in. The system prompt is where our theme and type rules go.
+- **Multimodal**: E2B and E4B also accept images. This could later let the AI *look* at a generated sprite and check it (Suggestion for later, not Scope 1).
+
+"Effective parameters" means the model runs about as fast as a 2B or 4B model, even though it stores some extra special layers.
+
+Because the model is a **setting in a config file**, you can develop with E2B now and switch to E4B (or bigger) on a better computer or in the cloud, without changing code.
+
+## No "frontend" to strip
 
 A model like Gemma is just two things:
 - **Weights**: a big file of numbers learned during training. This is the model's "brain".
 - **Tokenizer**: turns text into numbers and back.
 
-The chat window you see in AI apps is a separate program, not part of the model. So there is nothing to strip. Instead we:
-1. download the weights,
-2. fine-tune them on our examples, and
-3. run them with **our own C++ program** (using llama.cpp). That program is our "frontend": it builds the prompt from the rule files, runs the model and validates the output.
+The chat window you see in AI apps is a separate program, not part of the model. Our C++ tool **is** our frontend: it builds the prompt from the rule files, runs the model with llama.cpp, separates the thinking from the answer and validates the answer.
 
-## How to keep the model small
+## Making it fast without making it weak
 
-- **Choose a small model** (about 100 million to 1 billion parameters). *Parameters* are the numbers in the weights. More parameters means smarter but slower.
-- **Quantize it**: store each number with 4 bits instead of 16.
+We keep the full model's reasoning and optimize **our code** around it. The list is in `01-how-it-works.md` ("Performance").
+
+Shrinking with **quantization** is optional. It means storing each number with fewer bits, and it does not need retraining:
 
 ```
 Read this: file size ≈ parameters × bits per parameter ÷ 8   (8 bits = 1 byte)
-1 billion × 16 ÷ 8 = 2 GB      (normal)
-1 billion ×  4 ÷ 8 = 0.5 GB    (4-bit, plus a little extra)
+8 billion stored × 16 ÷ 8 ≈ 16 GB    (full precision)
+8 billion stored ×  4 ÷ 8 ≈  4 GB    (4-bit)
 ```
 
-Removing parts of the network ("pruning") is also possible, but it is advanced, so we skip it for now.
-
-## Candidate models (all free to download)
-
-| Model | Size | License | Notes |
-|-------|------|---------|-------|
-| **Gemma 3 270M** | 270 million | Gemma Terms of Use | Tiny and very fast; Google designed it for fine-tuning on narrow tasks like ours |
-| **Gemma 3 1B** | 1 billion | Gemma Terms of Use | Smarter, still small |
-| **Qwen3 0.6B** | 0.6 billion | Apache 2.0 | Good at structured output |
-| **SmolLM2 360M** | 360 million | Apache 2.0 | Tiny, fully open |
-
-**Suggestion:** start with **Gemma 3 270M or 1B**. Google officially supports fine-tuning Gemma on TPUs, which matches Kaggle's TPU v5e-8. Later we can compare against Qwen3 0.6B on the same test set. New models come out often, so we will check for newer versions when we reach M3.
+Google publishes official 4-bit Gemma 4 versions trained to lose very little quality (called **QAT**, quantization-aware training). We will test the quality with and without it and decide based on the results.
 
 ## How training works (beginner version)
 
+**Fine-tuning** means taking a model that already understands language and reasoning, then training it a little more on our own examples, so it becomes an expert at our job.
+
 A **training example** is an input plus the output we want:
 - **Input**: the rules (tree + Christmas) and a request
-- **Output**: a good Generation Instruction (JSON)
+- **Output**: good thinking, then a good Generation Instruction (JSON)
 
 The model sees many examples and slowly adjusts its weights so its outputs look more like the good ones.
 
-**LoRA (Suggestion):** instead of changing all the weights, we train a small **add-on** (an "adapter") on top of the model while the original weights stay frozen. It needs much less memory and time, so it fits the free tier easily. After training, the adapter is merged into the model.
+**LoRA (Suggestion):** instead of changing all the weights, we train a small **add-on** (an "adapter") on top of the model, while the original weights stay frozen. It needs much less memory and time, so it fits Kaggle's free tier. After training, the adapter is merged into the model.
 
 ## Where the training examples come from (you have none yet)
 
 1. **Hand-written**: you write 20–50 excellent examples. These matter most for quality and style.
-2. **Generated**: the M3 model (or a bigger free model) writes many examples from the rule files. The validator throws away any that break the rules, and you spot-check the rest.
+2. **Generated**: the M3 model (Gemma 4 with no fine-tuning) writes many examples from the rule files. The validator throws away any that break the rules, and you spot-check the rest.
 3. **Approved results**: once the tool runs, every approved asset becomes an example. Rejected ones, with the reason, teach what to avoid.
 
 For one narrow task like this, a few hundred to a few thousand good examples is usually enough. We will measure with the fixed test set (see `09-questions-and-gaps.md`).
 
-## Kaggle TPU v5e-8
+## Kaggle (for learning and experiments)
 
-- It is free, with a limited number of hours per week (check the current quota on Kaggle).
-- TPUs work best with JAX and KerasHub. Kaggle has official Gemma fine-tuning notebooks for TPUs.
-- It is more than enough to LoRA-fine-tune a model of 1 billion parameters or less.
-- Sessions are time-limited, so save the trained weights at the end of each session.
+You plan to use Kaggle's free tier to learn and experiment, not to run the finished tool. Two options:
+- **TPU v5e-8** (8 chips, 128 GB of memory in total): KerasHub + JAX. LoRA fine-tuning of E2B or E4B fits easily.
+- **T4 GPU**: Hugging Face transformers + PEFT. Google's own Gemma 4 thinking examples run on a T4.
 
-## From training to the C++ engine
+Free hours are limited per week and sessions end after a few hours, so save the trained adapter at the end of every session.
+
+## From training to the C++ tool
 
 ```
 Kaggle: fine-tune (LoRA) → merge adapter → save weights
-   → convert to GGUF (llama.cpp script) → quantize to 4-bit
-   → load in our C++ engine with llama.cpp → run with the JSON grammar
+   → convert to GGUF (llama.cpp script) → (optional) quantize
+   → load in our C++ tool with llama.cpp → thinking on, JSON grammar on the answer
 ```
-
-## "Adding an LLM makes the app heavy"
-
-That is true for apps that run the model while the user plays. Here generation is **offline** (see `01-how-it-works.md`), so the model never runs inside the game. We still optimize:
-- a small model in 4-bit (under 1 GB)
-- the model loaded once, with many requests run back to back
-- short prompts: only the rules relevant to the request are sent
-- a fixed JSON grammar, so no time is wasted on broken outputs
 
 ## What the model does NOT do
 
-It writes instructions and animation plans. It does **not** draw images. Drawing the snowy trees is Scope 2.
+It thinks and writes instructions and animation plans. It does **not** draw images. Drawing the snowy trees is Scope 2.

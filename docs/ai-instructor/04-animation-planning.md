@@ -98,15 +98,15 @@ Some animations cannot be done by moving layers. Growing from small to large, fo
 {
   "name": "grow",
   "stages": [
-    { "stage": 0, "size": [16, 24], "t_ms": 0,     "look": "sapling, few leaves" },
-    { "stage": 1, "size": [24, 36], "t_ms": 5000,  "look": "young tree, thin trunk" },
-    { "stage": 2, "size": [32, 48], "t_ms": 10000, "look": "full tree" }
+    { "stage": 0, "size_tiles": [1, 1], "t_ms": 0,     "look": "sapling, few leaves" },
+    { "stage": 1, "size_tiles": [1, 2], "t_ms": 5000,  "look": "young tree, thin trunk" },
+    { "stage": 2, "size_tiles": [2, 3], "t_ms": 10000, "look": "full tree" }
   ],
   "between_stages": "crossfade"
 }
 ```
 
-The AI decides how each stage looks. C++ checks the sizes are inside `variants.grow`. This is how the generation step and the animation step stay connected: the AI Instructor plans **which images are needed** for the animation.
+The AI decides how each stage looks. C++ checks that the number of stages is inside `variants.grow.stages` and every stage size is inside the type's `size.min` and `size.max`. This is how the generation step and the animation step stay connected: the AI Instructor plans **which images are needed** for the animation.
 
 ## Animation recipes (Suggestion)
 

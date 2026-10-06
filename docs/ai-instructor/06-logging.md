@@ -8,10 +8,12 @@ With a dynamic neural network, logs matter **more**, not less. They have two job
 
 | Log | What it records |
 |-----|-----------------|
-| **Run Log** | One entry per generated asset: the request, rule versions, model version, settings (temperature, seed), the model's raw output, validator results, fixes and retries, the final instruction, and time taken |
+| **Run Log** | One entry per generated asset: the request, rule versions, model version, settings (temperature, seed, thinking budget), the model's **thinking text**, its raw answer, validator results, fixes and retries, the final instruction, and time taken |
 | **Research Log** | Every internet search, what came back, and what was passed to the model |
 | **Review Log** | Whether each asset was approved or rejected, and **why** (by a person or by automatic checks) |
 | **Runtime Log** | Warnings and errors in the code |
+
+The **thinking text** shows *why* the AI made each choice, so a bad result can usually be traced to one wrong idea in its reasoning.
 
 The **Review Log** is the most valuable one for improving the AI. "Rejected: snow looks like white blobs" teaches the next model version what not to do.
 
