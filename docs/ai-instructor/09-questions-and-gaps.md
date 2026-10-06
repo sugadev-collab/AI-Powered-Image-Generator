@@ -2,25 +2,25 @@
 
 ## Questions for you (decisions needed)
 
-1. **What will the Image Generator (Scope 2) be?** This is the biggest open decision, because it affects the details of the instruction. Options:
+1. **What will the Image Generator (Scope 2) be?** It is still the biggest open decision. Snowy trees that all look different need the Image Generator to *draw* the variety the AI Instructor describes. Options:
    - **a. Procedural drawing**: C++ code draws each part from shapes, colors and textures. Fast, free, consistent look.
-   - **b. Part assembly**: an artist (or you) draws parts, such as trunks and leaf shapes. The generator layers and recolors them. Fast, free, the most consistent look.
-   - **c. AI image model** (for example Stable Diffusion). The most variety, but heavy, needs a GPU, and makes a consistent look hard.
-   - *Suggestion:* a or b (or both) fit your goals of "same look", "fast" and "0 USD" best. The instruction format in `03` works for all three.
-2. **Art style**: pixel art? What are the usual sprite sizes (16×16, 32×32, 64×64)?
-3. **Which game engine or language does the game use?** Will the AI Instructor be a C++ library linked into the game, or a separate program the game talks to?
-4. **Platforms**: PC only, or also mobile or web?
-5. **Internet**: are you OK with the separate Research Tool (see `01-how-it-works.md`) instead of searching during a game request?
+   - **b. Part assembly**: drawn parts (trunks, leaf shapes, snow caps) are layered and recolored. Fast, free, the most consistent look.
+   - **c. AI image model** (a neural network that draws, such as Stable Diffusion). The most variety, but heavy, it needs a GPU, and keeping one look across the game is hard.
+   - It can also be a mix. Scope 1 works with all of them, but the instruction details differ a little.
+2. **Art style and sprite sizes**: pixel art? Usual sizes (16×16, 32×32, 64×64)?
+3. **Training in Python**: is it OK that the Kaggle training notebooks are Python? The engine stays pure C++ (see `07-libraries.md`).
+4. **Your computer**: what CPU, how much RAM, and is there a graphics card (GPU)? This decides the model size we can run comfortably.
+5. **Review**: should a person approve every asset, or should assets that pass the validator be approved automatically with spot checks?
 6. **Rarity**: how many tiers, and what names?
 7. **Stats**: which stats do bosses, creatures and weapons have?
-8. **Seeds**: should the same request and seed always give the same sprite? (Recommended: yes. It helps with debugging, saving games and multiplayer.)
-9. **JSON**: OK to use JSON for the rule files? (Recommended: yes. It is simple, widely supported and fast to load. YAML is easier to type but slower and trickier to read correctly.)
+8. **Web3 / NFTs**: OK to decide later? (See `01-how-it-works.md`.)
 
 ## Easy-to-miss things (for beginners)
 
-- **Versioning rules**: when a rule file changes, old saved sprites can change too. Storing the version number in every output prevents surprises.
-- **Validation messages**: clear errors for bad rule files save hours. For example: "tree.json: leaves.color.default is not inside allowed_hue".
-- **Caching**: the same request and seed always gives the same result, so results can be saved and reused instead of generated again.
-- **Thread safety**: keep rules read-only after loading (see `01-how-it-works.md`).
-- **Licenses**: colors or ideas from the internet are usually fine, but images copied from the internet usually are not.
-- **Start small**: make one sprite type perfect before adding many.
+- **Model licenses**: Gemma has its own "Gemma Terms of Use" (commercial use is allowed, with a list of prohibited uses). Qwen and SmolLM use Apache 2.0. Check the license of the exact model before releasing the game.
+- **Data quality beats data amount**: 50 excellent examples teach more than 5,000 sloppy ones.
+- **A fixed test set**: keep about 50 requests that are never used for training. Run every new model version on them to see if it really got better.
+- **Versioning**: store rule versions **and** the model version with every asset, so old assets can always be explained.
+- **Kaggle limits**: free TPU time is limited per week and sessions end after a few hours. Save your work at the end of every session.
+- **Internet content**: colors and ideas from the internet are usually fine, but copying images usually is not.
+- **Start small**: make one sprite type and one event work well before adding more.

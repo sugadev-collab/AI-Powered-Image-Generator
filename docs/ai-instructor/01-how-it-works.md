@@ -1,98 +1,101 @@
 # 01 — How the AI Instructor Works
 
-## The steps (the "pipeline")
+## The big idea
+
+The AI Instructor is a **small neural network**, specifically a small language model, that writes instructions for the Image Generator.
+
+- It is **dynamic**. The same request can give a different result every time, so every tree, boss or creature can be unique.
+- The rule files are **guardrails**, not the decision maker. They tell the AI what it must keep and where its limits are, so it does not invent things you don't want.
+
+Who decides what:
+
+| Who | Decides |
+|-----|---------|
+| **The game** (rule files written by developers) | What is **static** (locked), what **may change**, and the limits of each change |
+| **The AI** (neural network) | Everything that is allowed to change, such as colors, textures, shapes, small details, animation and stats. It is fully dynamic inside the limits. |
+| **The Validator** (plain C++ code) | Whether the AI's output really follows the rules. If not, the output is fixed or the AI tries again. |
+
+**Why a validator?** A neural network is creative, but it can make mistakes, such as picking a color outside the allowed range. The validator is a cheap, fast safety net. It makes sure the guardrails are always followed instead of only hoping the AI follows them.
+
+## Example: a Christmas event
+
+1. A developer adds an event file, `christmas.json`: snow on top surfaces is allowed, white and red are added to the palette, and lights and ornaments are allowed as decorations.
+2. A request asks for 200 trees for the Christmas event.
+3. The AI reads the tree rules, the theme and the Christmas event, and writes 200 **different** instructions, with different snow amounts, light colors, ornament positions and sway animations. The tree size stays locked.
+4. The validator checks every instruction.
+5. The images are drawn (Scope 2), reviewed, and scheduled to appear on 20 December.
+
+## The pipeline (the steps)
 
 A pipeline is a list of steps where the output of one step is the input of the next.
 
 ```
-Request from game
-      │
-      ▼
-1. Load rules ........ Theme file + Sprite Type file (loaded once at startup, kept in memory)
-      │
-      ▼
-2. Merge ............. Request values + defaults. Anything not mentioned uses the default.
-      │
-      ▼
-3. Check locks ....... Locked properties (e.g. a fixed tree size) cannot be changed by the request.
-      │
-      ▼
-4. Resolve "auto" .... For every "auto" value, the AI picks a value inside the allowed range
-      │                 that fits the strict values around it.
-      ▼
-5. Validate .......... Check the result follows every rule. If something breaks a rule, fix it
-      │                 (for example, clamp a size back into its limit) and log the fix.
-      ▼
-6. Plan animation .... Choose the animation, which parts move, the pivots, the timing.
-      │
-      ▼
-7. Output ............ Generation Instruction + Animation Plan (+ Decision Log entries)
+Request (+ optional event)
+   │
+1. Load rules ......... theme + sprite type + event (loaded once, kept in memory)
+2. Merge .............. request values + defaults. Locked values are applied and cannot change.
+3. Research ........... (optional) look up new information on the internet and add it as context
+4. AI generates ....... the model writes the Generation Instruction + Animation Plan as JSON,
+   │                    filling every "auto" value and every free detail
+5. Validate ........... C++ checks every rule. Small mistakes are fixed (for example, a size is
+   │                    clamped back into its limit). Big mistakes: ask the model again (up to N tries).
+6. Variety check ...... (optional) compare with assets already made; if too similar, generate again
+7. Output + log
 ```
 
-Every step is plain, fast C++. Most requests should take far less than a millisecond.
+## How the model is forced to write the right format
 
-## My opinion: what kind of "AI" this should be
+A language model writes text one small piece at a time. Each piece is called a **token**.
 
-You said the AI does not need to understand full text like a chat model. I agree, and I think this is a strength.
+We can give the model a **grammar**, which is a description of the exact JSON shape we accept. At every step, any token that would break the grammar is blocked. So the output is **always valid JSON with the right fields**. This is called **constrained decoding**, and llama.cpp supports it (see `07-libraries.md`).
 
-Your requests are **structured**: `type = tree`, `size = 32x48`, `color = auto`. For structured input, the right tool is a **rule-based decision engine with seeded choices and scoring**. This is the same kind of AI used in many games for decisions (often called "game AI" or "procedural generation").
+The grammar checks the **shape**. The validator checks the **content**, for example "is this green inside the allowed hue range?".
 
-Why this is a good fit (Suggestion):
-- **Fast**: no neural network runs, so it is suitable for an engine used in many places at the same time.
-- **Free**: no training and no GPU needed. This matches your 0 USD budget.
-- **Follows rules exactly**: the AI cannot invent things you did not allow, because it only chooses from what the rule files allow.
-- **Repeatable**: with a seed, the same request always gives the same result. This makes the logs useful for improving the AI.
-- **Tunable with JSON**: changing the AI's behaviour means editing a rule file, not retraining a model.
+## Dynamic by default, and how we still debug
 
-A language model (LLM) can be added **later** as an optional extra, for example to turn free text ("make a scary swamp tree") into a structured request. It should not sit in the fast path.
+You are right that an AI giving the same result every time is not what we want. So by default **every run uses a new random seed** (the number behind the model's random choices), and results differ.
 
-## How the AI makes a good "auto" choice
+**Suggestion:** still **write down** the seed and model version in the log. We never reuse it normally. But if one tree comes out broken, we can recreate that exact tree and see why. Writing it down does not make the AI any less dynamic.
 
-When a value is `auto`, the AI does this:
-1. Make a list of **candidates** that are allowed by the rules.
-2. Give each candidate a **score** for how well it fits the strict values already decided.
-3. Pick the best one, or a random one from the top few, using the seed. This keeps results varied but always good.
+How dynamic the AI is can be tuned with **temperature**, a model setting for how adventurous its choices are:
+- low (for example 0.3): safe choices, results look similar
+- high (for example 1.0): more variety, more surprises, more mistakes for the validator to catch
 
-Example: the leaves color is `auto` and the trunk is a fixed brown. The AI prefers leaf colors that have enough contrast with the trunk, so the two parts do not blend together.
+Temperature can be set per sprite type in the rule files. For example, bosses could be high and soil tiles low.
 
-A simple contrast rule:
+## Internet access ("learning something new")
 
-```
-Read this: L is "lightness", from 0 (black) to 1 (white).
-contrast_ok = |L_leaves − L_trunk| ≥ min_contrast
-```
+Assets are made **ahead of time**, not while a player plays. So the AI can use the internet freely during generation without slowing down the game.
 
-`|x|` means "the size of x, ignoring minus signs". If the leaves and trunk are almost equally light, they look like one blob. The rule rejects that. `min_contrast` comes from the Theme file, so you can tune it.
+There are two different kinds of "learning", and both are useful:
 
-## Internet access (your idea)
+1. **Looking things up (every run, instant).** The research step searches the internet, for example for "traditional Christmas tree decorations". It saves the results in a cache and gives a short summary to the model as extra context. The model now knows about it for this run.
+2. **Really learning (when we retrain).** Approved outputs and logs become new training examples. We fine-tune again, and the new model version is better. See `10-model-and-training.md`.
 
-You want the AI to learn from the internet when choosing `auto` values.
+Important: a model does **not** change itself while it runs. Its "brain" (the weights) only improves when we train it.
 
-**Suggestion:** do not search the internet during a game request. It is slow, it fails when offline, and results change from day to day, so the same request would give different sprites.
+## Timing and time order
 
-Instead, make a separate **Research Tool** that you run when you want:
-1. It searches the internet (for example, for real colors of jungle plants).
-2. It saves what it found into a **cache file** next to the rules.
-3. It logs every search and result, so you can review them.
-4. The AI Instructor then uses the cache file like any other rule file.
+Because generation is not live, time order is a **schedule**, not part of the AI:
+- Every request can have a `release_at` date and time: when the asset should appear in the game.
+- The generator works on requests early, earliest `release_at` first, so the soonest assets are ready first.
+- Approved assets wait in an "approved" list. The game loads them when `release_at` arrives.
 
-You get the benefit of the internet without making the engine slow or unpredictable.
+Timing **inside** an animation (keyframes) is still planned by the AI. See `04-animation-planning.md`.
 
-## Time ordering (your idea)
+## Performance
 
-You want to put things in time order and have the AI create them in that order.
+Generation is offline, so the model's speed decides **how long a batch takes**, not the game's frame rate. We still optimize it:
+- a **small** model (under about 1 billion parameters)
+- **4-bit quantization**, which stores the model's numbers with fewer bits (about 4× smaller and faster, with a small quality loss)
+- running on a normal CPU with llama.cpp, with the model loaded once and many requests run back to back
 
-This is cheap and does not need to be inside the AI's decision logic:
-- Each request can have an `at_time_ms` field (time in milliseconds).
-- Requests wait in a **priority queue**, which is a list that always gives you the earliest item first.
-- Inside an Animation Plan, every keyframe also has a time (`t_ms`). See `04-animation-planning.md`.
+Rough estimate (to be measured): a few seconds per sprite on a normal laptop CPU. Details are in `10-model-and-training.md`.
 
-Adding to a priority queue costs roughly `log2(n)` steps for `n` items. With 1,000 items that is about 10 steps, so it will not hurt performance.
+## Web3 and NFTs (your question)
 
-## Used in many places at the same time
+"Will my game be a Web3 game?" is your choice, and it does not need to be decided now. The AI can make every asset unique either way.
 
-To let many parts of the game use the AI Instructor at the same time safely:
-- Rule files are loaded **once** and are **read-only** after that.
-- Each request carries its own seed and its own working data.
+Web3 would add a blockchain wallet system, transaction fees ("gas") for creating NFTs, and extra legal and marketplace rules. These are a lot to take on while the game is not designed yet and the budget is 0 USD.
 
-Because nothing shared is changed, many threads can run requests at the same time without locks. A lock is a "wait your turn" mechanism, and it slows things down.
+**Suggestion:** decide later. Meanwhile, give every generated asset a **unique ID** and store its full instruction with it. That is exactly the "metadata" an NFT would need later, so nothing is lost if you choose Web3.

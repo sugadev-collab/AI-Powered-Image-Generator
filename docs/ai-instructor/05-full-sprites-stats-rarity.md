@@ -1,79 +1,86 @@
 # 05 — Full Sprite Generation, Stats and Rarity
 
-There are two jobs, and they use the AI differently:
+There are two jobs:
 
 | Job | Example | How much the AI decides |
 |-----|---------|------------------------|
-| **Decorate** an existing sprite | Change a tree's leaf color, add a small sway | Little: a few `auto` values |
-| **Create a full sprite** | A new boss, a new crafted weapon, with stats and rarity | A lot: many parts, stats and rarity, all under the rules |
+| **Decorate** an existing sprite | Change a tree's look for Christmas, add a small sway | Some values and details |
+| **Create a full sprite** | A new boss or crafted weapon, with stats and rarity | Almost everything, under the rules |
 
 Full sprite creation happens in specific areas: boss fights, weapon crafting and other crafting.
 
 ## The idea: generate → check → fix
 
-For a full sprite, the AI follows the same pipeline as in `01-how-it-works.md`, but most values are `auto`. To keep it under the rules:
+1. **Generate**: the AI designs the whole sprite: parts, colors, details, animation and stats.
+2. **Check**: the validator tests every rule, including rules that connect values (for example, "a legendary weapon must have a glow").
+3. **Fix**: small problems are fixed automatically. Big problems: the AI tries again (up to a set number of tries). Every fix is logged.
 
-1. **Generate**: pick every value from inside its allowed range.
-2. **Check**: test all rules, including rules that connect values (for example, "a legendary weapon must have a glow").
-3. **Fix**: if a rule fails, change the value to the nearest allowed one, or pick again (up to a set number of tries). Log every fix.
+Nothing is output until the check passes, so a sprite that breaks the rules never reaches the game.
 
-The AI can never output something that breaks the rules, because nothing is returned until the check passes.
+## Rarity: picked by C++, designed by the AI (Suggestion)
 
-## Rarity file (example shape)
+Rarity affects game balance, so the **chance** of each rarity should be exact. Let C++ pick the rarity with weights, and then let the AI design a sprite that **fits** that rarity.
 
 ```json
 {
   "rarity_version": 1,
   "tiers": [
-    { "id": "common",    "weight": 60, "stat_budget": [10, 20], "visual": { "saturation_max": 0.5, "extra_details": 0, "glow": false } },
-    { "id": "rare",      "weight": 30, "stat_budget": [20, 35], "visual": { "saturation_max": 0.7, "extra_details": 1, "glow": false } },
-    { "id": "legendary", "weight": 10, "stat_budget": [35, 50], "visual": { "saturation_max": 0.9, "extra_details": 2, "glow": true } }
+    { "id": "common",    "weight": 60, "stat_budget": [10, 20], "visual": "plain, muted colors",           "glow": false },
+    { "id": "rare",      "weight": 30, "stat_budget": [20, 35], "visual": "brighter colors, one extra detail", "glow": false },
+    { "id": "legendary", "weight": 10, "stat_budget": [35, 50], "visual": "vivid, ornate, two extra details",  "glow": true }
   ]
 }
 ```
 
-- **weight**: how often each tier is picked when rarity is `auto`. Here common is chosen 60 times out of 100.
+- **weight**: how often each tier is picked. Here common is picked 60 times out of 100.
 - **stat_budget**: the total stat points a sprite of this tier can have.
-- **visual**: how rarity shows on the sprite. Players should be able to see rarity at a glance.
-
-## Picking a rarity with weights
+- **visual**: how rarity shows on the sprite, as text the AI reads. Players should see rarity at a glance.
 
 ```
 Read this: add up all weights (60 + 30 + 10 = 100).
-Pick a random number r from 0 to 99 using the seed.
+Pick a random number r from 0 to 99.
 r < 60          → common
 60 ≤ r < 90     → rare
 90 ≤ r < 100    → legendary
 ```
 
-## Sharing stat points (the stat budget)
+## Stats: proposed by the AI, balanced by C++
 
-Each stat-carrying type (boss, creature, weapon) lists its stats with a minimum and maximum, for example `attack [1, 30]` and `defense [1, 30]`.
+The AI suggests stats that **match its design**. For example, a heavily armored boss gets more defense. C++ then makes sure the total equals the budget and each stat is inside its limits:
 
 ```
 Read this:
-1. B = stat budget, chosen inside the tier's range using the seed.
-2. For each stat i, pick a random weight r_i between 0 and 1.
-3. share_i = r_i / (r_1 + r_2 + ... + r_n)       ← all shares add up to 1
-4. stat_i  = min_i + share_i × B, then clamp to max_i
+B      = the stat budget (inside the tier's range)
+sum    = stat_1 + stat_2 + ... + stat_n    (what the AI suggested)
+stat_i = stat_i × B / sum                  ← scale every stat so they add up to B
+then clamp each stat_i to its [min_i, max_i]
 ```
 
-The shares split the budget like slices of a pie. Clamping means "if it is above the maximum, set it to the maximum".
-
-Sprite Type files can add **bias** so types feel different. For example, a boss type can say attack gets at least 40% of the budget.
+Scaling keeps the AI's idea ("lots of defense, little speed") but makes the total fair. Clamping means "if it is above the maximum, set it to the maximum".
 
 ## Linking stats to looks (Suggestion)
 
-Make the visuals follow the stats through simple rules in the Sprite Type file. For example:
+Ask the AI (through the rule file descriptions) to make visuals follow the stats. For example:
 - higher `attack` → a larger blade, within the allowed size range
 - higher `defense` → thicker armor parts
-- an `element: fire` value → hues limited to the red and orange range
+- `element: fire` → hues limited to the red and orange range (this one is a hard limit the validator checks)
 
 Then a sprite's look tells the player something true about it.
 
+## Making every boss different: the variety check
+
+To make sure a new boss is not too close to one that already exists, compare their key choices (parts, shapes, main colors, details):
+
+```
+Read this: A and B are the sets of key choices of two bosses.
+similarity = (choices both share) / (all different choices in A and B together)
+```
+
+This gives 0 (nothing in common) to 1 (identical). If the similarity to any existing boss is above a limit (for example 0.7), the AI tries again. The limit goes in the rule file so you can tune it.
+
 ## Output
 
-A full sprite's output is a normal Generation Instruction (see `03-request-and-output.md`) plus a `stats` block and a `rarity` value:
+A full sprite's output is a normal Generation Instruction (see `03-request-and-output.md`) plus a `rarity` value and a `stats` block:
 
 ```json
 { "rarity": "rare", "stats": { "attack": 18, "defense": 9 }, "parts": [ "..." ], "animation_plan": { "...": "..." } }

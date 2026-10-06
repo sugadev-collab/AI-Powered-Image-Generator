@@ -1,33 +1,35 @@
 # 06 — Logging
 
-You want detailed logs of the AI's actions, searches and auto choices so you can improve it, and logs of runtime problems if that does not make the engine heavy. Both are possible.
+With a dynamic neural network, logs matter **more**, not less. They have two jobs:
+1. **Find problems**: see exactly what the AI did and why a result came out wrong.
+2. **Train the next model**: approved and rejected results become training examples (see `10-model-and-training.md`).
 
-## Three kinds of log
+## What we log
 
-| Log | What it records | Example |
-|-----|-----------------|---------|
-| **Decision Log** | Every value and where it came from (`locked`, `request`, `auto`, `type_default`, `theme_default`). For `auto`: the candidates, their scores, and the pick. | `leaves.color = #4E9A3A (auto, score 0.82, 5 candidates)` |
-| **Research Log** | Every internet search by the Research Tool, and what was saved | `query "jungle fern colors" → 4 colors saved` |
-| **Runtime Log** | Warnings and errors in the code | `WARN locked property 'size' ignored in request forest-0003` |
+| Log | What it records |
+|-----|-----------------|
+| **Run Log** | One entry per generated asset: the request, rule versions, model version, settings (temperature, seed), the model's raw output, validator results, fixes and retries, the final instruction, and time taken |
+| **Research Log** | Every internet search, what came back, and what was passed to the model |
+| **Review Log** | Whether each asset was approved or rejected, and **why** (by a person or by automatic checks) |
+| **Runtime Log** | Warnings and errors in the code |
+
+The **Review Log** is the most valuable one for improving the AI. "Rejected: snow looks like white blobs" teaches the next model version what not to do.
 
 ## Format: JSON Lines (Suggestion)
 
-One JSON object per line. Easy to write quickly, easy to search, and easy to load into a tool later.
+One JSON object per line. Easy to write fast, easy to search, and easy to turn into training data.
 
 ```
-{"t":"2026-10-04T18:30:00.120","req":"forest-0001","step":"auto","prop":"leaves.color","pick":"#4E9A3A","score":0.82,"candidates":5,"seed":12345}
-{"t":"2026-10-04T18:30:00.121","req":"forest-0001","step":"validate","result":"ok"}
+{"t":"2026-10-06T10:30:00.120","asset":"tree-7f3a9c21","step":"generate","model":"instructor-v0.1","temp":0.8,"seed":918273,"ms":2140}
+{"t":"2026-10-06T10:30:02.300","asset":"tree-7f3a9c21","step":"validate","result":"fixed","fix":"leaves.color lightness 0.66 → 0.60"}
+{"t":"2026-10-06T11:05:10.000","asset":"tree-7f3a9c21","step":"review","result":"approved","by":"auto"}
 ```
 
 ## Keeping logging fast
 
-Writing to a file is slow compared to the AI's work. These tricks keep logging cheap:
+Generation is offline, so logging will not slow the game. These habits still keep it cheap:
 
-1. **Buffer**: collect log lines in memory and write them in batches, not one at a time.
-2. **Background thread**: a separate thread does the file writing, so the AI never waits for the disk.
-3. **Log levels**: `ERROR`, `WARN`, `INFO`, `DEBUG`. In a release build, keep only `WARN` and `ERROR`. Detailed decision logs can be switched on when you are tuning.
-4. **Compile-time switch**: `DEBUG` logging can be fully removed from release builds, so it costs nothing at all.
-
-## Replaying a result
-
-Because each log entry has the request, seed and rule versions, you can run the same request again and get the exact same result. This is the main way to find out why the AI made a bad choice, and to check that a rule change fixed it.
+1. **Buffer**: collect lines in memory and write them in batches.
+2. **Background thread**: a separate thread writes to disk, so generation never waits for it.
+3. **Log levels**: `ERROR`, `WARN`, `INFO`, `DEBUG`. Detailed logs can be switched off when you don't need them.
+4. **Compile-time switch**: `DEBUG` logging can be removed from release builds completely, so it costs nothing.

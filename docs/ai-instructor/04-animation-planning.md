@@ -14,9 +14,24 @@ An animation is a list of small changes over time. To plan it, the AI writes dow
 
 This is why the Sprite Type file splits a sprite into **parts** with **pivots**. The Image Generator draws each part on its own layer, and Scope 3 later moves the layers.
 
+## Who does what: AI for ideas, C++ for math
+
+Language models are creative but bad at exact math. So we split the work:
+- **The AI chooses the creative values**: which animation, which parts move, how big the movement is, how many frames, the style of motion.
+- **C++ computes the exact numbers**: keyframe times and values, using the formulas below.
+- **The validator** checks that everything stays inside the limits in the Sprite Type file.
+
 ## Keyframes
 
 A **keyframe** is "at this time, this part is like this". Scope 3 fills in the frames between keyframes.
+
+What the AI writes:
+
+```json
+{ "name": "idle_sway", "parts": ["leaves"], "pivot": "trunk_top", "angle_deg": 3, "frame_count": 6, "easing": "sine" }
+```
+
+What C++ turns it into:
 
 ```json
 {
@@ -43,11 +58,9 @@ A **keyframe** is "at this time, this part is like this". Scope 3 fills in the f
 }
 ```
 
-## How the AI creates this plan
+## How the times are computed
 
-1. Read the requested animation (`idle_sway`) from the Sprite Type file's `animations` list. If the animation is not allowed for this type, log a warning and skip it.
-2. Choose free values inside their limits using the seed. Here, angle = 3° (the limit is 4°) and 6 frames (the limit is 4 to 8).
-3. Work out the times from fps and frame count:
+1. Duration from frame count and fps:
 
 ```
 Read this:
@@ -55,7 +68,7 @@ duration_ms = frame_count / fps × 1000
             = 6 / 8 × 1000 = 750 ms
 ```
 
-4. Put keyframes on a **sine wave**, which gives a smooth back-and-forth swing:
+2. Keyframes on a **sine wave**, which gives a smooth back-and-forth swing:
 
 ```
 Read this: A = largest angle, T = time for one full swing, t = current time.
@@ -64,7 +77,7 @@ angle(t) = A × sin(2π × t / T)
 
 `sin` goes smoothly from 0 up to 1, back to 0, down to −1, and back to 0. Multiplying by `A` turns that into an angle from −3° to +3°. `2π` is one full circle, so one full swing takes `T` milliseconds.
 
-5. **Validate**: the angle stays within the limit, all times are in order, and the pivot exists.
+3. **Validate**: the angle stays within `max_angle_deg`, the frame count is inside `frames`, all times are in order, and the pivot exists.
 
 ## Filling in frames between keyframes (Scope 3, explained now)
 
@@ -75,7 +88,7 @@ Read this: (t0, v0) and (t1, v1) are two keyframes; t is a time between them.
 v = v0 + (v1 − v0) × (t − t0) / (t1 − t0)
 ```
 
-`(t − t0) / (t1 − t0)` is "how far along we are", from 0 to 1. At halfway the value is halfway between `v0` and `v1`.
+`(t − t0) / (t1 − t0)` is "how far along we are", from 0 to 1. At halfway, the value is halfway between `v0` and `v1`.
 
 ## Animations that change the image itself
 
@@ -85,20 +98,20 @@ Some animations cannot be done by moving layers. Growing from small to large, fo
 {
   "name": "grow",
   "stages": [
-    { "stage": 0, "size": [16, 24], "t_ms": 0 },
-    { "stage": 1, "size": [24, 36], "t_ms": 5000 },
-    { "stage": 2, "size": [32, 48], "t_ms": 10000 }
+    { "stage": 0, "size": [16, 24], "t_ms": 0,     "look": "sapling, few leaves" },
+    { "stage": 1, "size": [24, 36], "t_ms": 5000,  "look": "young tree, thin trunk" },
+    { "stage": 2, "size": [32, 48], "t_ms": 10000, "look": "full tree" }
   ],
   "between_stages": "crossfade"
 }
 ```
 
-So the AI Instructor plans **which images are needed** for the animation. That is how the generation step and the animation step stay connected.
+The AI decides how each stage looks. C++ checks the sizes are inside `variants.grow`. This is how the generation step and the animation step stay connected: the AI Instructor plans **which images are needed** for the animation.
 
 ## Animation recipes (Suggestion)
 
-Keep a small set of reusable **recipes** (sway, bob, pulse, blink, grow, flicker) with limits in the rule files. Each Sprite Type lists the recipes it allows. The AI combines recipes instead of inventing motion. This keeps animations consistent with the game's style.
+Keep a small set of reusable **recipes** (sway, bob, pulse, blink, grow, flicker, twinkle) with limits in the rule files. Each Sprite Type lists the recipes it allows. The AI combines and varies recipes instead of inventing motion from nothing, which keeps animations in the game's style.
 
 ## What we do NOT do in Scope 1
 
-We do not generate animation code and we do not play animations. That is Scope 3. Scope 1 only outputs the plan above.
+We do not generate animation code and we do not play animations. That is Scope 3.
